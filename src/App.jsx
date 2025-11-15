@@ -2,6 +2,8 @@ import React from 'react'
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom'
 import Spline from '@splinetool/react-spline'
 
+const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+
 const Page = ({ title, children }) => (
   <div className="min-h-screen flex flex-col bg-gradient-to-b from-blue-50 to-white text-slate-800">
     <header className="sticky top-0 z-20 backdrop-blur bg-white/70 border-b border-slate-200">
@@ -19,8 +21,8 @@ const Page = ({ title, children }) => (
           <Link to="/admin" className="hover:text-blue-700">Admin</Link>
         </nav>
         <div className="flex items-center gap-3">
-          <button className="px-3 py-1.5 rounded-md border text-sm hover:bg-slate-50">Sign in</button>
-          <button className="px-3 py-1.5 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700">Get Started</button>
+          <a href={`${API_BASE}/auth/google/start`} className="px-3 py-1.5 rounded-md border text-sm hover:bg-slate-50">Sign in with Google</a>
+          <Link to="/patient" className="px-3 py-1.5 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700">Get Started</Link>
         </div>
       </div>
     </header>
@@ -95,11 +97,10 @@ const Privacy = () => (
   </Page>
 )
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
-
 const PatientDashboard = () => {
   const [form, setForm] = React.useState({ name: '', email: '', date: '', time: '', reason: '' })
   const [messages, setMessages] = React.useState([])
+  const wsRef = React.useRef(null)
 
   const book = async () => {
     const res = await fetch(`${API_BASE}/api/appointments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ patient_email: form.email, patient_name: form.name, date: form.date, time: form.time, reason: form.reason }) })
@@ -110,7 +111,9 @@ const PatientDashboard = () => {
   const send = async (content) => {
     if (!content) return
     await fetch(`${API_BASE}/api/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: 'patient', sender: form.name || 'Guest', sender_email: form.email, content }) })
-    loadMsgs()
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'message', content }))
+    }
   }
   const loadMsgs = async () => {
     const res = await fetch(`${API_BASE}/api/messages?room=patient`)
@@ -118,6 +121,18 @@ const PatientDashboard = () => {
     setMessages(data.items || [])
   }
   React.useEffect(() => { loadMsgs() }, [])
+
+  React.useEffect(() => {
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    const wsUrl = `${proto}://${(new URL(API_BASE || window.location.origin)).host}/ws/patient`
+    const ws = new WebSocket(wsUrl)
+    wsRef.current = ws
+    ws.onmessage = () => { loadMsgs() }
+    ws.onopen = () => {}
+    ws.onerror = () => {}
+    ws.onclose = () => {}
+    return () => ws.close()
+  }, [])
 
   return (
     <Page title="Patient Dashboard">
